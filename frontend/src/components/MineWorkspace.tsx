@@ -157,133 +157,112 @@ export const MineWorkspace: React.FC<MineWorkspaceProps> = ({
     setMineProfile(getMineProductionProfile(normSelectedMineId));
   }, [normSelectedMineId]);
 
+  // ⚡ Bolt Performance Optimization:
+  // Consolidated 5 independent API calls into a single Promise.all fetch.
+  // This prevents 5 separate state updates and cascading React re-renders, optimizing CPU usage during data load.
   useEffect(() => {
     let isMounted = true;
-    apiGet<any>(`/mines/${normSelectedMineId}/workspace`)
-      .then((data) => {
-        if (isMounted && data) {
-          const localFallback = getMineProductionProfile(normSelectedMineId);
-          const mappedProfile = {
-            mineName: data.mineInfo?.name || localFallback.mineName,
-            shortCode: localFallback.shortCode,
-            type: data.mineInfo?.type || localFallback.type,
-            state: data.mineInfo?.state || localFallback.state,
-            district: (data.mineInfo?.district || localFallback.district || '').replace(/\s+District$/i, ''),
-            potentialSourceZone: data.futureSourceZone?.name || localFallback.potentialSourceZone,
-            currentOutputTons: data.production?.actual || localFallback.currentOutputTons,
-            plannedTargetTons: data.production?.target || localFallback.plannedTargetTons,
-            predictedOutputTons: data.production?.forecast || localFallback.predictedOutputTons,
-            projectedGapTons: data.production?.gap || localFallback.projectedGapTons,
-            gapPct: data.production?.target ? Math.abs(Math.round((data.production.gap / data.production.target) * 100)) : localFallback.gapPct,
-            monthlyTrend: (data.production?.monthlyTrend && data.production.monthlyTrend.length > 0)
-              ? data.production.monthlyTrend.map((mt: any) => ({
-                  label: mt.month,
-                  actual: mt.actual,
-                  target: mt.target,
-                  forecast: mt.forecast,
-                  confidenceLower: mt.lowerBound,
-                  confidenceUpper: mt.upperBound,
-                  isMonsoon: ['Jun', 'Jul', 'Aug', 'Sep'].some(m => String(mt.month).includes(m))
-                }))
-              : localFallback.monthlyTrend,
-            featureImportance: (data.riskContributors && data.riskContributors.length > 0)
-              ? data.riskContributors.map((rc: any, idx: number) => ({
-                  feature: rc.factor,
-                  weightPct: rc.importancePct,
-                  category: String(rc.factor || '').toLowerCase().includes('rain') || String(rc.factor || '').toLowerCase().includes('water') ? 'Environmental' : 'Operational',
-                  color: ['#3B82F6', '#10B981', '#06B6D4', '#F59E0B', '#8B5CF6'][idx % 5]
-                }))
-              : localFallback.featureImportance,
-            environmentalFactors: localFallback.environmentalFactors || {
-              rainfallPct: 70,
-              rainfallMm: 45,
-              ndvi: 0.42,
-              soilMoisturePct: 65,
-              equipmentAvailabilityPct: 80
-            }
-          };
-          setMineProfile(mappedProfile);
-        }
-      })
-      .catch((err) => console.error("Failed to fetch workspace:", err));
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedMineId]);
 
-  // Fetch ML Forecasting Data
-  useEffect(() => {
-    let isMounted = true;
-    apiGet<any>(`/mines/${selectedMineId}/forecasting`)
-      .then((data) => {
-        if (isMounted && data && data.forecasting) {
-          setMineProfile((prev: any) => ({
-            ...prev,
-            monthlyTrend: data.forecasting.monthlyTrend ? data.forecasting.monthlyTrend.map((mt: any) => ({
-              label: mt.month,
-              actual: mt.actual,
-              target: mt.target,
-              forecast: mt.forecast,
-              confidenceLower: mt.lowerBound,
-              confidenceUpper: mt.upperBound,
-              isMonsoon: ['Jun', 'Jul', 'Aug', 'Sep'].some(m => String(mt.month || '').includes(m))
-            })) : prev.monthlyTrend,
-            predictedOutputTons: data.forecasting.forecast || prev.predictedOutputTons
-          }));
-        }
-      })
-      .catch((err) => console.error("Failed to fetch forecasting:", err));
-    return () => { isMounted = false; };
-  }, [selectedMineId]);
+    // We only fetch cause analysis if the user is an admin
+    const fetchCauseAnalysis = userRole === 'admin'
+      ? apiGet<any>(`/mines/${normSelectedMineId}/cause-analysis`).catch(e => { console.error(e); return null; })
+      : Promise.resolve(null);
 
-  // Fetch Shortfall Early Warning Data
-  useEffect(() => {
-    let isMounted = true;
-    apiGet<any>(`/mines/${selectedMineId}/shortfall`)
-      .then((data) => {
-        if (isMounted && data && data.shortfall) {
-          setMineProfile((prev: any) => ({
-            ...prev,
-            shortfallRisk: data.shortfall || prev.shortfallRisk,
-            alerts: data.alerts || prev.alerts
-          }));
-        }
-      })
-      .catch((err) => console.error("Failed to fetch shortfall:", err));
-    return () => { isMounted = false; };
-  }, [selectedMineId]);
+    Promise.all([
+      apiGet<any>(`/mines/${normSelectedMineId}/workspace`).catch(e => { console.error(e); return null; }),
+      apiGet<any>(`/mines/${normSelectedMineId}/forecasting`).catch(e => { console.error(e); return null; }),
+      apiGet<any>(`/mines/${normSelectedMineId}/shortfall`).catch(e => { console.error(e); return null; }),
+      fetchCauseAnalysis,
+      apiGet<any>(`/mines/${normSelectedMineId}/corrective-action`).catch(e => { console.error(e); return null; })
+    ]).then(([workspaceData, forecastingData, shortfallData, causeData, correctiveData]) => {
+      if (!isMounted) return;
 
-  // Fetch SHAP Cause Analysis Data (admin only — backend enforces, frontend skips for site_manager)
-  useEffect(() => {
-    if (userRole !== 'admin') return;
-    let isMounted = true;
-    apiGet<any>(`/mines/${selectedMineId}/cause-analysis`)
-      .then((data) => {
-        if (isMounted && data && data.causeAnalysis) {
-          setMineProfile((prev: any) => ({
-            ...prev,
-            featureImportance: data.causeAnalysis ? data.causeAnalysis.map((rc: any, idx: number) => ({
-              feature: rc.factor,
-              weightPct: rc.importancePct,
-              category: String(rc.factor || '').toLowerCase().includes('rain') ? 'Environmental' : 'Operational',
-              color: ['#3B82F6', '#10B981', '#06B6D4', '#F59E0B', '#8B5CF6'][idx % 5]
-            })) : prev.featureImportance
-          }));
-        }
-      })
-      .catch((err) => console.error("Failed to fetch cause analysis:", err));
-    return () => { isMounted = false; };
-  }, [selectedMineId, userRole]);
+      const localFallback = getMineProductionProfile(normSelectedMineId);
+      let mappedProfile: any = { ...localFallback };
 
-  // Fetch Corrective Actions Data
-  useEffect(() => {
-    let isMounted = true;
-    apiGet<any>(`/mines/${selectedMineId}/corrective-action`)
-      .then((data) => {
-        if (isMounted && data && data.correctiveActions) {
-          const rec = data.correctiveActions;
-          setActions(prev => {
-            const updated = [...prev];
+      // 1. Map Workspace Data
+      if (workspaceData) {
+        mappedProfile = {
+          ...mappedProfile,
+          mineName: workspaceData.mineInfo?.name || localFallback.mineName,
+          shortCode: localFallback.shortCode,
+          type: workspaceData.mineInfo?.type || localFallback.type,
+          state: workspaceData.mineInfo?.state || localFallback.state,
+          district: (workspaceData.mineInfo?.district || localFallback.district || '').replace(/\s+District$/i, ''),
+          potentialSourceZone: workspaceData.futureSourceZone?.name || localFallback.potentialSourceZone,
+          currentOutputTons: workspaceData.production?.actual || localFallback.currentOutputTons,
+          plannedTargetTons: workspaceData.production?.target || localFallback.plannedTargetTons,
+          predictedOutputTons: workspaceData.production?.forecast || localFallback.predictedOutputTons,
+          projectedGapTons: workspaceData.production?.gap || localFallback.projectedGapTons,
+          gapPct: workspaceData.production?.target ? Math.abs(Math.round((workspaceData.production.gap / workspaceData.production.target) * 100)) : localFallback.gapPct,
+          monthlyTrend: (workspaceData.production?.monthlyTrend && workspaceData.production.monthlyTrend.length > 0)
+            ? workspaceData.production.monthlyTrend.map((mt: any) => ({
+                label: mt.month,
+                actual: mt.actual,
+                target: mt.target,
+                forecast: mt.forecast,
+                confidenceLower: mt.lowerBound,
+                confidenceUpper: mt.upperBound,
+                isMonsoon: ['Jun', 'Jul', 'Aug', 'Sep'].some(m => String(mt.month).includes(m))
+              }))
+            : localFallback.monthlyTrend,
+          featureImportance: (workspaceData.riskContributors && workspaceData.riskContributors.length > 0)
+            ? workspaceData.riskContributors.map((rc: any, idx: number) => ({
+                feature: rc.factor,
+                weightPct: rc.importancePct,
+                category: String(rc.factor || '').toLowerCase().includes('rain') || String(rc.factor || '').toLowerCase().includes('water') ? 'Environmental' : 'Operational',
+                color: ['#3B82F6', '#10B981', '#06B6D4', '#F59E0B', '#8B5CF6'][idx % 5]
+              }))
+            : localFallback.featureImportance,
+          environmentalFactors: localFallback.environmentalFactors || {
+            rainfallPct: 70,
+            rainfallMm: 45,
+            ndvi: 0.42,
+            soilMoisturePct: 65,
+            equipmentAvailabilityPct: 80
+          }
+        };
+      }
+
+      // 2. Map Forecasting Data
+      if (forecastingData && forecastingData.forecasting) {
+        mappedProfile.monthlyTrend = forecastingData.forecasting.monthlyTrend ? forecastingData.forecasting.monthlyTrend.map((mt: any) => ({
+          label: mt.month,
+          actual: mt.actual,
+          target: mt.target,
+          forecast: mt.forecast,
+          confidenceLower: mt.lowerBound,
+          confidenceUpper: mt.upperBound,
+          isMonsoon: ['Jun', 'Jul', 'Aug', 'Sep'].some(m => String(mt.month || '').includes(m))
+        })) : mappedProfile.monthlyTrend;
+        mappedProfile.predictedOutputTons = forecastingData.forecasting.forecast || mappedProfile.predictedOutputTons;
+      }
+
+      // 3. Map Shortfall Data
+      if (shortfallData && shortfallData.shortfall) {
+        mappedProfile.shortfallRisk = shortfallData.shortfall || mappedProfile.shortfallRisk;
+        mappedProfile.alerts = shortfallData.alerts || mappedProfile.alerts;
+      }
+
+      // 4. Map Cause Analysis Data (Admin only)
+      if (causeData && causeData.causeAnalysis) {
+        mappedProfile.featureImportance = causeData.causeAnalysis ? causeData.causeAnalysis.map((rc: any, idx: number) => ({
+          feature: rc.factor,
+          weightPct: rc.importancePct,
+          category: String(rc.factor || '').toLowerCase().includes('rain') ? 'Environmental' : 'Operational',
+          color: ['#3B82F6', '#10B981', '#06B6D4', '#F59E0B', '#8B5CF6'][idx % 5]
+        })) : mappedProfile.featureImportance;
+      }
+
+      // Finally, set the single mapped profile
+      setMineProfile(mappedProfile);
+
+      // 5. Map Corrective Actions Data
+      if (correctiveData && correctiveData.correctiveActions) {
+        const rec = correctiveData.correctiveActions;
+        setActions(prev => {
+          const updated = [...prev];
+          if (updated[0]) {
             updated[0] = {
               ...updated[0],
               problem: rec.instruction || updated[0].problem,
@@ -292,13 +271,16 @@ export const MineWorkspace: React.FC<MineWorkspaceProps> = ({
               expectedImpact: `Mitigate gap: ${rec.currentParams?.expectedGap} -> ${rec.recommendedParams?.expectedGap}`,
               reason: rec.instruction || updated[0].reason
             };
-            return updated;
-          });
-        }
-      })
-      .catch((err) => console.error("Failed to fetch corrective action:", err));
-    return () => { isMounted = false; };
-  }, [selectedMineId]);
+          }
+          return updated;
+        });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [normSelectedMineId, userRole]);
 
   // Shortfall Diagnosis View Mode & Tab State
   const [shortfallMode, setShortfallMode] = useState<'SHIFT_LOG' | 'BASELINE'>('SHIFT_LOG');
