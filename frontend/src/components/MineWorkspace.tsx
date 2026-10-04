@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { type PortalRoute } from './Navbar';
 import { fetchLiveMineWeather, type LiveWeatherData } from '../services/weatherService';
 import { ProductionForecastEChart } from './ProductionForecastEChart';
@@ -715,17 +715,17 @@ export const MineWorkspace: React.FC<MineWorkspaceProps> = ({
     );
   };
 
-  const highPriorityCount = actions.filter((a) => a.priority === 'HIGH').length;
-  const mediumPriorityCount = actions.filter((a) => a.priority === 'MEDIUM').length;
-  const completedCount = actions.filter((a) => a.status === 'RESOLVED').length;
-  const actionedCount = actions.filter((a) => a.status === 'ACTIONED' || a.status === 'RESOLVED').length;
+  const highPriorityCount = useMemo(() => actions.filter((a) => a.priority === 'HIGH').length, [actions]);
+  const mediumPriorityCount = useMemo(() => actions.filter((a) => a.priority === 'MEDIUM').length, [actions]);
+  const completedCount = useMemo(() => actions.filter((a) => a.status === 'RESOLVED').length, [actions]);
+  const actionedCount = useMemo(() => actions.filter((a) => a.status === 'ACTIONED' || a.status === 'RESOLVED').length, [actions]);
 
-  const filteredAlerts = alertsList.filter((alt) => {
+  const filteredAlerts = useMemo(() => alertsList.filter((alt) => {
     if (riskFilter !== 'ALL' && alt.risk !== riskFilter) return false;
     if (statusFilter === 'UNACKNOWLEDGED' && alt.status !== 'UNACKNOWLEDGED') return false;
     if (statusFilter === 'ACKNOWLEDGED' && alt.status !== 'ACKNOWLEDGED') return false;
     return true;
-  });
+  }), [alertsList, riskFilter, statusFilter]);
 
   // =========================================================================
   // SITE MANAGER INTELLIGENCE & STATUTORY THREAT REGISTER STATE
