@@ -1,0 +1,3 @@
+## 2023-10-24 - Massive Workspace Rendering Bottleneck
+**Learning:** The `MineWorkspace` component acts as a mega-container and forces re-evaluation of all derivative arrays (like `actions` and `alertsList`) whenever *any* unrelated state changes (like `activeTab` or `isMineDropdownOpen`). This causes cascading re-renders in heavy child components like ECharts and MapLibre canvases.
+**Action:** When a top-level workspace component passes derived array subsets to expensive visualization children, MUST memoize those subsets. Passing raw inline `.filter()` results destroys child component memoization because the array reference changes every time.
