@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MOIL_MINES, type MineItem } from '../data/minesData';
 import { OperationalFootprintMap } from './OperationalFootprintMap';
 import { type PortalRoute } from './Navbar';
@@ -20,30 +20,34 @@ export const MineSelectionPage: React.FC<MineSelectionPageProps> = ({
   const [hoveredMineId, setHoveredMineId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Map state names to dataset matching
-  const mapStateFilter = (stateStr: string): string => {
+  // ⚡ Bolt Optimization: Memoize the mapStateFilter function to prevent it from being recreated on every render.
+  const mapStateFilter = React.useCallback((stateStr: string): string => {
     if (stateStr === 'MAHARASHTRA') return 'Maharashtra';
     if (stateStr === 'MADHYA PRADESH') return 'Madhya Pradesh';
     return 'ALL';
-  };
+  }, []);
 
-  const activeStateFilter = mapStateFilter(selectedState);
+  // ⚡ Bolt Optimization: Memoize derived state calculations to prevent unnecessary work on component re-renders (e.g., when hover state changes).
+  const activeStateFilter = useMemo(() => mapStateFilter(selectedState), [selectedState, mapStateFilter]);
 
-  // Mines filtered by state only (used for computing dynamic category counts)
-  const stateFilteredMines = MOIL_MINES.filter((mine) => {
+  // ⚡ Bolt Optimization: Memoize filtered arrays. Re-rendering due to hover effects was causing the list to be re-filtered repeatedly.
+  const stateFilteredMines = useMemo(() => MOIL_MINES.filter((mine) => {
     if (activeStateFilter !== 'ALL' && mine.state !== activeStateFilter) {
       return false;
     }
     return true;
-  });
+  }), [activeStateFilter]);
 
-  const totalCount = stateFilteredMines.length;
-  const openCastCount = stateFilteredMines.filter((m) => m.type === 'Open Cast').length;
-  const undergroundCount = stateFilteredMines.filter((m) => m.type === 'Underground').length;
-  const activeCount = stateFilteredMines.filter((m) => m.isImplemented).length;
+  // ⚡ Bolt Optimization: Memoize count calculations.
+  const { totalCount, openCastCount, undergroundCount, activeCount } = useMemo(() => ({
+    totalCount: stateFilteredMines.length,
+    openCastCount: stateFilteredMines.filter((m) => m.type === 'Open Cast').length,
+    undergroundCount: stateFilteredMines.filter((m) => m.type === 'Underground').length,
+    activeCount: stateFilteredMines.filter((m) => m.isImplemented).length
+  }), [stateFilteredMines]);
 
-  // Filter mines array based on both State Selector and Category Filter Bar
-  const displayedMines = MOIL_MINES.filter((mine) => {
+  // ⚡ Bolt Optimization: Memoize the final displayed array to prevent it from being recalculated on hover states.
+  const displayedMines = useMemo(() => MOIL_MINES.filter((mine) => {
     // State Filter
     if (activeStateFilter !== 'ALL' && mine.state !== activeStateFilter) {
       return false;
@@ -53,7 +57,7 @@ export const MineSelectionPage: React.FC<MineSelectionPageProps> = ({
     if (selectedFilter === 'UNDERGROUND' && mine.type !== 'Underground') return false;
     if (selectedFilter === 'ACTIVE' && !mine.isImplemented) return false;
     return true;
-  });
+  }), [activeStateFilter, selectedFilter]);
 
   const handleSelectMine = (mine: MineItem) => {
     if (mine.isImplemented) {
