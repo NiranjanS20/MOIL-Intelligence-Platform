@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MOIL_MINES, type MineItem } from '../data/minesData';
 import { OperationalFootprintMap } from './OperationalFootprintMap';
 import { type PortalRoute } from './Navbar';
@@ -29,31 +29,42 @@ export const MineSelectionPage: React.FC<MineSelectionPageProps> = ({
 
   const activeStateFilter = mapStateFilter(selectedState);
 
-  // Mines filtered by state only (used for computing dynamic category counts)
-  const stateFilteredMines = MOIL_MINES.filter((mine) => {
-    if (activeStateFilter !== 'ALL' && mine.state !== activeStateFilter) {
-      return false;
-    }
-    return true;
-  });
+  // Memoize computing dynamic category counts and filtering for O(n) pass instead of O(n * filters)
+  const { totalCount, openCastCount, undergroundCount, activeCount, displayedMines } = useMemo(() => {
+    let tCount = 0;
+    let ocCount = 0;
+    let ugCount = 0;
+    let actCount = 0;
+    const dispMines: MineItem[] = [];
 
-  const totalCount = stateFilteredMines.length;
-  const openCastCount = stateFilteredMines.filter((m) => m.type === 'Open Cast').length;
-  const undergroundCount = stateFilteredMines.filter((m) => m.type === 'Underground').length;
-  const activeCount = stateFilteredMines.filter((m) => m.isImplemented).length;
+    for (const mine of MOIL_MINES) {
+      const matchesState = activeStateFilter === 'ALL' || mine.state === activeStateFilter;
 
-  // Filter mines array based on both State Selector and Category Filter Bar
-  const displayedMines = MOIL_MINES.filter((mine) => {
-    // State Filter
-    if (activeStateFilter !== 'ALL' && mine.state !== activeStateFilter) {
-      return false;
+      if (matchesState) {
+        tCount++;
+        if (mine.type === 'Open Cast') ocCount++;
+        if (mine.type === 'Underground') ugCount++;
+        if (mine.isImplemented) actCount++;
+
+        let matchesCategory = true;
+        if (selectedFilter === 'OPEN CAST' && mine.type !== 'Open Cast') matchesCategory = false;
+        else if (selectedFilter === 'UNDERGROUND' && mine.type !== 'Underground') matchesCategory = false;
+        else if (selectedFilter === 'ACTIVE' && !mine.isImplemented) matchesCategory = false;
+
+        if (matchesCategory) {
+          dispMines.push(mine);
+        }
+      }
     }
-    // Category Filter
-    if (selectedFilter === 'OPEN CAST' && mine.type !== 'Open Cast') return false;
-    if (selectedFilter === 'UNDERGROUND' && mine.type !== 'Underground') return false;
-    if (selectedFilter === 'ACTIVE' && !mine.isImplemented) return false;
-    return true;
-  });
+
+    return {
+      totalCount: tCount,
+      openCastCount: ocCount,
+      undergroundCount: ugCount,
+      activeCount: actCount,
+      displayedMines: dispMines
+    };
+  }, [activeStateFilter, selectedFilter]);
 
   const handleSelectMine = (mine: MineItem) => {
     if (mine.isImplemented) {
